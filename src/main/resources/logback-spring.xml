@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="60 seconds" debug="false">
+    <!-- 从 application.yml 读取自定义配置 -->
+    <springProperty scope="context" name="LOG_PATH" source="log.config.path" defaultValue="./logs/java-frame-table"/>
+    <springProperty scope="context" name="MAX_HISTORY" source="log.config.max-history" defaultValue="30"/>
+    <springProperty scope="context" name="MAX_FILE_SIZE" source="log.config.max-file-size" defaultValue="100MB"/>
+    <springProperty scope="context" name="MAX_FILE_SIZE_ERROR" source="log.config.max-file-size-error" defaultValue="50MB"/>
+    <springProperty scope="context" name="TOTAL_SIZE_CAP" source="log.config.total-size-cap" defaultValue="10GB"/>
+    <springProperty scope="context" name="IMMEDIATE_FLUSH" source="log.config.immediate-flush" defaultValue="false"/>
+    <springProperty scope="context" name="CLEAN_HISTORY_ON_START" source="log.config.clean-history-on-start" defaultValue="true"/>
+    <springProperty scope="context" name="ROOT_LEVEL" source="log.config.root-level" defaultValue="INFO"/>
+
+    <!-- 应用名称 -->
+    <property name="APP_NAME" value="java-frame-table"/>
+    <!-- 日志上下文变量：Trace ID/Span ID -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] [%X{SPAN_ID}] %-5level %logger{50} - %msg%n"/>
+    <!-- 日志存储路径（避免路径过长） -->
+    <!-- <property name="LOG_PATH" value="${LOG_PATTERN}"/> -->
+
+    <!-- 控制台输出（开发环境） -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 文件输出（生产环境，滚动切割，避免大文件） -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+        <!-- 滚动策略：按天切割，保留30天，单个文件最大100MB -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- 分割后的日志文件名：日期+序号 -->
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 单个日志文件不超过100MB，避免内存溢出 -->
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+            <!-- 日志文件保留天数 -->
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <!-- 日志文件总大小上限 -->
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+            <!-- 删除旧日志文件（超过总大小上限） -->
+            <cleanHistoryOnStart>${CLEAN_HISTORY_ON_START}</cleanHistoryOnStart>
+        </rollingPolicy>
+        <!-- 日志格式（包含 TraceID） -->
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <!-- 过滤：只输出 INFO 及以上级别日志（可选） -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+        <!-- 关闭立即刷新，提升输出效率（平衡性能与日志实时性） -->
+        <immediateFlush>${IMMEDIATE_FLUSH}</immediateFlush>
+    </appender>
+
+    <!-- 异常日志单独输出 -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}-error-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <maxFileSize>${MAX_FILE_SIZE_ERROR}</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <!-- 只输出 ERROR 级别日志 -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
+
+    <!-- 根日志配置 生产环境建议使用INFO级别 -->
+    <root level="${ROOT_LEVEL}">
+        <!-- 输出到控制台 -->
+        <appender-ref ref="CONSOLE"/>
+        <!-- 输出到普通日志文件 -->
+        <appender-ref ref="FILE"/>
+        <!-- 输出到错误日志文件 -->
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+    <!-- 业务日志单独配置（按需调整级别） -->
+    <logger name="com.virgil.javaframetable" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </logger>
+
+    <!-- Spring 框架日志级别（减少冗余） -->
+    <logger name="org.springframework" level="WARN"/>
+
+    <!-- 加密工具日志关闭（避免敏感信息泄露） -->
+<!--    <logger name="com.virgil.javaframetable.util.EncryptUtil" level="WARN" additivity="false">-->
+<!--        <appender-ref ref="ERROR_FILE"/>-->
+<!--    </logger>-->
+</configuration>

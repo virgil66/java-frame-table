@@ -1,0 +1,78 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: java-frame-table
+  # MySQL 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: "jdbc:mysql://localhost:3306/virgil-dev?zeroDateTimeBehavior=convertToNull&useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: root
+    password: 34821015
+  jackson:
+    # 日期时间格式反序列化
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  # 实体类扫描路径
+  type-aliases-package: org.virgil.javaframetable.entity
+  # Mapper XML 文件位置
+  mapper-locations: classpath*:/**/mapper/xml/*.xml
+  configuration:
+    # 开启驼峰命名转换（数据库字段 user_name -> 实体类 userName）
+    map-underscore-to-camel-case: true
+    # 打印 SQL 日志（开发环境建议开启）
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 主键策略（自增）
+      id-type: AUTO
+      # 逻辑删除字段
+      logic-delete-field: flagDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+
+# 日志配置
+#logging:
+#  config: classpath:logback-spring.xml
+#  # 日志格式（控制台+文件均携带 TraceID）
+#  pattern:
+#    # 控制台日志格式：%X{traceId} 从MDC中获取TraceID（需结合MDC优化，见步骤5）
+#    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId}] %logger{50} - %msg%n"
+#    # 文件日志格式（若开启文件日志）
+#    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId}] %logger{50} - %msg%n"
+#  # 可选：开启日志文件输出
+#  file:
+#    name: ./logs/java-frame-table.log # 日志文件路径（./ 表示项目根目录）
+#  # 日志级别（按需调整）
+#  level:
+#    # 自定义包下日志级别为INFO（可根据需要调整）
+#    com.virgil.javaframetable: DEBUG
+#    # Spring框架日志级别为WARN（减少冗余）
+#    org.springframework: WARN
+#    # 根日志级别
+#    root: INFO
+#  # 日志文件滚动策略（Spring Boot 2.4+ 支持）
+#  logback:
+#    rollingpolicy:
+#      max-file-size: 100MB # 单个日志文件最大大小
+#      max-history: 30 # 日志文件保留天数
+#      total-size-cap: 10GB # 日志文件总大小上限
+#      file-name-pattern: ./logs/java-frame-table-%d{yyyy-MM-dd}.%i.log  # 滚动文件命名规则
+#      clean-history-on-start: true # 启动时清理历史日志
+
+# 自定义日志配置
+log:
+  config:
+    path: /Users/mac/forten/resources/java-frame-base/03logs # 日志文件路径
+    max-history: 30 # 日志文件保留天数
+    max-file-size: 100MB # 单个日志文件最大大小
+    max-file-size-error: 50MB # 错误日志文件最大大小
+    total-size-cap: 10GB # 日志文件总大小上限
+    immediate-flush: false # 默认false
+    root-level: DEBUG # 根日志级别
+    clean-history-on-start: true # 启动时清理历史日志
