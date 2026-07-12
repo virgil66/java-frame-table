@@ -101,6 +101,13 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 						try {
 							List<String> allUpdateSql = new ArrayList<>();
 
+							// 修复零日期脏数据（必须先执行，否则后续 ALTER 会因表重建失败）
+							// String fixZeroDateSql = fixZeroDateTime(connection, tableName);
+							// if (StringUtils.isNotBlank(fixZeroDateSql)) {
+							// 	alterSqlAll.append(fixZeroDateSql);
+							// 	executeSql(connection, fixZeroDateSql);
+							// }
+
 							// 阶段1：生成表备注变更 SQL（纯生成，不执行）
 							String updateTableRemarkSql = generateUpdateTableRemarkSql(connection, tableName, tableRemark);
 							if (StringUtils.isNotBlank(updateTableRemarkSql)) {
@@ -170,6 +177,12 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 								}
 							}
 
+							// 如果没有任何变更，直接跳过
+							if (allUpdateSql.isEmpty()) {
+								log.info("表 {} 无任何变更，跳过记录", tableName);
+								continue;
+							}
+
 							// 阶段6：统一执行所有 SQL（先记录，后执行）
 							for (String sql : allUpdateSql) {
 								alterSqlAll.append(sql);
@@ -187,6 +200,118 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 				}
 			}
 		}
+	}
+
+	/**
+	 * @Name        : createIndex
+	 * @Description : 创建索引（唯一索引或普通索引）
+	 * @Param       : connection 数据库连接
+	 * @Param       : tableName 表名
+	 * @Param       : field 字段名
+	 * @Param       : indexAnnotation 索引注解
+	 * @Param       : isUnique 是否为唯一索引
+	 * @Return      : String 执行 SQL
+	 * @Date        : 2026/2/15
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private String createIndex(Connection connection, String tableName, String field, Class<?> entityClass, boolean isUnique) throws SQLException {
+		Map<String, String> fieldInfo = getFieldInfo(entityClass, field);
+		String fieldType = fieldInfo.get("type");
+		String fieldLength = fieldInfo.get("length");
+
+		String indexLength = getIndexLength(fieldType, fieldLength);
+		String fieldNamePrefix = isUnique ? "idx_unique_" : "idx_normal_";
+		String fieldName = StringUtils.camelToUnderscore(field);
+		String indexFieldName = fieldNamePrefix + StringUtils.camelToUnderscore(field);
+		String indexType = isUnique ? "UNIQUE" : "";
+		String sql = "CREATE " + indexType + " INDEX " + indexFieldName + " ON " + tableName + " (" + fieldName + indexLength + ");";
+		executeSql(connection, sql);
+		log.info("{}索引 {} 已创建，创建语句：{}", isUnique ? "唯一" : "普通", indexFieldName, sql);
+		return sql;
+	}
+
+	/**
+	 * @Name        : executeSql
+	 * @Description : 执行 SQL
+	 * @Param       : connection 数据库连接
+	 * @Param       : sql SQL
+	 * @Return      : void
+	 * @Date        : 2026/2/14
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private void executeSql(Connection connection, String sql) throws SQLException {
+		try {
+			log.info("执行 SQL: {}", sql);
+			Statement statement = connection.createStatement();
+			statement.executeUpdate(sql);
+			statement.close();
+		} catch (SQLException e) {
+			// 记录失败的 SQL 执行日志
+			log.error("SQL 执行失败: {}，失败原因：{}", sql, e.getMessage());
+			throw e;
+		}
+	}
+
+	/**
+	 * @Name        : findField
+	 * @Description : 递归查找字段
+	 * @Param       : clazz 类
+	 * @Param       : fieldName 字段名
+	 * @Return      : Field 字段
+	 * @Date        : 2026/2/15
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private Field findField(Class<?> clazz, String fieldName) {
+		Class<?> current = clazz;
+		while (current != null && current != Object.class) {
+			try {
+				return current.getDeclaredField(fieldName);
+			} catch (NoSuchFieldException e) {
+				current = current.getSuperclass();
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * @Name        : fixZeroDateTime
+	 * @Description : 修复表中的零值日期字段
+	 * @Param       : connection 数据库连接
+	 * @Param       : tableName 表名
+	 * @Return      : String 修复 SQL 语句
+	 * @Date        : 2026/7/13
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private String fixZeroDateTime(Connection connection, String tableName) throws SQLException {
+		Set<String> dateTimeColumns = new HashSet<>();
+		DatabaseMetaData metaData = connection.getMetaData();
+		ResultSet rs = metaData.getColumns(null, null, tableName, null);
+		while (rs.next()) {
+			String typeName = rs.getString("TYPE_NAME");
+			if ("DATETIME".equalsIgnoreCase(typeName) || "TIMESTAMP".equalsIgnoreCase(typeName)) {
+				dateTimeColumns.add(rs.getString("COLUMN_NAME"));
+			}
+		}
+
+		if (dateTimeColumns.isEmpty()) {
+			return "";
+		}
+
+		StringBuilder sql = new StringBuilder();
+		for (String col : dateTimeColumns) {
+			sql.append("UPDATE ").append(tableName)
+					.append(" SET ").append(col).append(" = NOW()")
+					.append(" WHERE ").append(col).append(" = '0000-00-00 00:00:00'");
+		}
+		return sql.toString();
 	}
 
 	/**
@@ -324,31 +449,6 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 	}
 
 	/**
-	 * @Name        : scanEntityClasses
-	 * @Description : 扫描实体类
-	 * @Param       : basePackage 包名
-	 * @Return      : Set<Class<?>> 实体类集合
-	 * @Date        : 2026/2/14
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private Set<Class<?>> scanEntityClasses(String basePackage) {
-		ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
-		scanner.addIncludeFilter(new AnnotationTypeFilter(AutoTable.class));
-
-		Set<Class<?>> entityClasses = new HashSet<>();
-		for (BeanDefinition beanDefinition : scanner.findCandidateComponents(basePackage)) {
-			try {
-				entityClasses.add(Class.forName(beanDefinition.getBeanClassName()));
-			} catch (ClassNotFoundException e) {
-				log.error("无法加载实体类: {}", beanDefinition.getBeanClassName(), e);
-			}
-		}
-		return entityClasses;
-	}
-
-	/**
 	 * @Name        : generateCreateTableSql
 	 * @Description : 生成创建表的SQL语句
 	 * @Param       : tableName 表名
@@ -403,8 +503,11 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 
 		// 解析新字段定义中的类型和长度
 		String[] parts = newDefinition.trim().split("\\s+");
-		String newType = parts[1];
-		String newSize = newType.contains("(") ? newType.replaceAll(".*\\((.*)\\).*", "$1") : null;
+		String newTypeRaw = parts[1];
+		// 剥离长度参数，只取类型名用于类型比较
+		String newType = newTypeRaw.contains("(") ? newTypeRaw.substring(0, newTypeRaw.indexOf('(')) : newTypeRaw;
+		// 单独提取长度值用于尺寸比较（从原始值提取）
+		String newSize = newTypeRaw.contains("(") ? newTypeRaw.replaceAll(".*\\((.*)\\).*", "$1") : null;
 
 		// 判断 nullability 是否变更
 		boolean newNotNull = newDefinition.toUpperCase().contains("NOT NULL");
@@ -484,29 +587,6 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 		}
 
 		return fieldInfo;
-	}
-
-	/**
-	 * @Name        : findField
-	 * @Description : 递归查找字段
-	 * @Param       : clazz 类
-	 * @Param       : fieldName 字段名
-	 * @Return      : Field 字段
-	 * @Date        : 2026/2/15
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private Field findField(Class<?> clazz, String fieldName) {
-		Class<?> current = clazz;
-		while (current != null && current != Object.class) {
-			try {
-				return current.getDeclaredField(fieldName);
-			} catch (NoSuchFieldException e) {
-				current = current.getSuperclass();
-			}
-		}
-		return null;
 	}
 
 	/**
@@ -592,47 +672,6 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 	}
 
 	/**
-	 * @Name        : tableExists
-	 * @Description : 检查表是否存在
-	 * @Param       : connection 数据库连接
-	 * @Param       : tableName 表名
-	 * @Return      : boolean true：存在，false：不存在
-	 * @Date        : 2026/2/14
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private boolean tableExists(Connection connection, String tableName) throws SQLException {
-		DatabaseMetaData metaData = connection.getMetaData();
-		ResultSet resultSet = metaData.getTables(null, null, tableName, new String[]{"TABLE"});
-		return resultSet.next();
-	}
-
-	/**
-	 * @Name        : executeSql
-	 * @Description : 执行 SQL
-	 * @Param       : connection 数据库连接
-	 * @Param       : sql SQL
-	 * @Return      : void
-	 * @Date        : 2026/2/14
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private void executeSql(Connection connection, String sql) throws SQLException {
-		try {
-			log.info("执行 SQL: {}", sql);
-			Statement statement = connection.createStatement();
-			statement.executeUpdate(sql);
-			statement.close();
-		} catch (SQLException e) {
-			// 记录失败的 SQL 执行日志
-			log.error("SQL 执行失败: {}，失败原因：{}", sql, e.getMessage());
-			throw e;
-		}
-	}
-
-	/**
 	 * @Name        : getCurrentTableRemark
 	 * @Description : 获取当前表的备注信息
 	 * @Param       : connection 数据库连接
@@ -702,36 +741,6 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 	}
 
 	/**
-	 * @Name        : createIndex
-	 * @Description : 创建索引（唯一索引或普通索引）
-	 * @Param       : connection 数据库连接
-	 * @Param       : tableName 表名
-	 * @Param       : field 字段名
-	 * @Param       : indexAnnotation 索引注解
-	 * @Param       : isUnique 是否为唯一索引
-	 * @Return      : String 执行 SQL
-	 * @Date        : 2026/2/15
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private String createIndex(Connection connection, String tableName, String field, Class<?> entityClass, boolean isUnique) throws SQLException {
-		Map<String, String> fieldInfo = getFieldInfo(entityClass, field);
-		String fieldType = fieldInfo.get("type");
-		String fieldLength = fieldInfo.get("length");
-
-		String indexLength = getIndexLength(fieldType, fieldLength);
-		String fieldNamePrefix = isUnique ? "idx_unique_" : "idx_normal_";
-		String fieldName = StringUtils.camelToUnderscore(field);
-		String indexFieldName = fieldNamePrefix + StringUtils.camelToUnderscore(field);
-		String indexType = isUnique ? "UNIQUE" : "";
-		String sql = "CREATE " + indexType + " INDEX " + indexFieldName + " ON " + tableName + " (" + fieldName + indexLength + ");";
-		executeSql(connection, sql);
-		log.info("{}索引 {} 已创建，创建语句：{}", isUnique ? "唯一" : "普通", indexFieldName, sql);
-		return sql;
-	}
-
-	/**
 	 * @Name        : getIndexLength
 	 * @Description : 根据字段类型和长度计算索引长度
 	 * @Param       : fieldType 字段类型
@@ -777,5 +786,47 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 		} catch (Exception e) {
 			log.error("记录表 {} 操作 {} 日志时发生异常：{}", tableName, operationType, e.getMessage(), e);
 		}
+	}
+
+	/**
+	 * @Name        : scanEntityClasses
+	 * @Description : 扫描实体类
+	 * @Param       : basePackage 包名
+	 * @Return      : Set<Class<?>> 实体类集合
+	 * @Date        : 2026/2/14
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private Set<Class<?>> scanEntityClasses(String basePackage) {
+		ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
+		scanner.addIncludeFilter(new AnnotationTypeFilter(AutoTable.class));
+
+		Set<Class<?>> entityClasses = new HashSet<>();
+		for (BeanDefinition beanDefinition : scanner.findCandidateComponents(basePackage)) {
+			try {
+				entityClasses.add(Class.forName(beanDefinition.getBeanClassName()));
+			} catch (ClassNotFoundException e) {
+				log.error("无法加载实体类: {}", beanDefinition.getBeanClassName(), e);
+			}
+		}
+		return entityClasses;
+	}
+
+	/**
+	 * @Name        : tableExists
+	 * @Description : 检查表是否存在
+	 * @Param       : connection 数据库连接
+	 * @Param       : tableName 表名
+	 * @Return      : boolean true：存在，false：不存在
+	 * @Date        : 2026/2/14
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private boolean tableExists(Connection connection, String tableName) throws SQLException {
+		DatabaseMetaData metaData = connection.getMetaData();
+		ResultSet resultSet = metaData.getTables(null, null, tableName, new String[]{"TABLE"});
+		return resultSet.next();
 	}
 }
