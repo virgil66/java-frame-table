@@ -99,75 +99,81 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 					} else {
 						StringBuilder alterSqlAll = new StringBuilder();
 						try {
-							// 更新表备注
-							String updateTableRemarkSql = updateTableRemark(connection, tableName, tableRemark);
+							List<String> allUpdateSql = new ArrayList<>();
+
+							// 阶段1：生成表备注变更 SQL（纯生成，不执行）
+							String updateTableRemarkSql = generateUpdateTableRemarkSql(connection, tableName, tableRemark);
 							if (StringUtils.isNotBlank(updateTableRemarkSql)) {
-								alterSqlAll.append(updateTableRemarkSql);
+								allUpdateSql.add(updateTableRemarkSql);
 							}
 
-							// 更新索引信息
-							String updateIndexesSql = updateIndexes(connection, tableName, entityClass);
-							if (StringUtils.isNotBlank(updateIndexesSql)) {
-								alterSqlAll.append(updateIndexesSql);
-							}
+							// 阶段2：生成索引变更 SQL 列表（纯生成，不执行）
+							List<String> indexSqlList = generateUpdateIndexesSql(connection, tableName, entityClass);
+							allUpdateSql.addAll(indexSqlList);
 
-							// 收集实体中期望的字段名
+							// 阶段3：生成字段 MODIFY / ADD SQL（纯生成，不执行）
 							Set<String> expectedColumns = new HashSet<>();
-							// 检查并更新表结构
+							Set<String> definedPkFields = new HashSet<>();
 							for (String columnDefinition : fieldDefinitions) {
-								// 跳过主键约束定义（PRIMARY KEY 不是列，不能 ALTER ADD COLUMN）
 								if (columnDefinition.toUpperCase().startsWith("PRIMARY KEY")) {
-									Set<String> existingPK = getPrimaryKeyColumns(connection, tableName);
-									if (existingPK.isEmpty()) {
-										String addPkSql = "ALTER TABLE " + tableName + " ADD " + columnDefinition + ";";
-										executeSql(connection, addPkSql);
-										alterSqlAll.append(addPkSql);
-										log.info("主键已添加：{}", addPkSql);
+									// 收集主键定义，但不加入 allUpdateSql（稍后统一处理）
+									String pkFields = columnDefinition.substring("PRIMARY KEY (".length());
+									pkFields = pkFields.substring(0, pkFields.length() - 1);
+									String[] pkFieldArray = pkFields.split(",\\s*");
+									for (String pkField : pkFieldArray) {
+										definedPkFields.add(pkField.trim().toLowerCase());
 									}
 									continue;
 								}
 
 								String fieldName = columnDefinition.split("\\s+")[0];
 								expectedColumns.add(fieldName.toLowerCase());
+
 								Map<String, String> currentMetadata = getColumnMetadata(connection, tableName, fieldName);
 
 								if (!currentMetadata.isEmpty()) {
 									String alterSql = generateAlterColumnSql(tableName, fieldName, columnDefinition, currentMetadata);
 									if (alterSql != null) {
-										executeSql(connection, alterSql);
-										alterSqlAll.append(alterSql);
-										log.info("字段 {} 已更新，执行语句：{}", fieldName, alterSql);
+										allUpdateSql.add(alterSql);
+										log.info("字段 {} 需要更新，执行语句：{}", fieldName, alterSql);
 									} else {
 										log.info("字段 {} 无需更新", fieldName);
 									}
 								} else {
 									String addColumnSql = "ALTER TABLE " + tableName + " ADD COLUMN " + columnDefinition + ";";
-									executeSql(connection, addColumnSql);
-									alterSqlAll.append(addColumnSql);
-									log.info("字段 {} 已添加，执行语句：{}", fieldName, addColumnSql);
+									allUpdateSql.add(addColumnSql);
+									log.info("字段 {} 需要添加，执行语句：{}", fieldName, addColumnSql);
 								}
 							}
 
-							// 获取当前表所有实际列
-							Set<String> actualColumns = getTableColumns(connection, tableName);
+							// 阶段4：补全主键
+							Set<String> existingPK = getPrimaryKeyColumns(connection, tableName);
+							for (String pkField : definedPkFields) {
+								if (!existingPK.contains(pkField)) {
+									String addPkSql = "ALTER TABLE " + tableName + " ADD PRIMARY KEY (" + pkField + ");";
+									allUpdateSql.add(addPkSql);
+									log.info("主键字段 {} 需要添加主键约束", pkField);
+									break; // 只加一次 PRIMARY KEY
+								}
+							}
 
-							// 删除废弃列（排除主键和索引列）
+							// 阶段5：废弃字段 DROP
 							Set<String> indexedColumns = getIndexedColumns(connection, tableName);
-							// 获取主键列
-							Set<String> primaryKeyColumns = getPrimaryKeyColumns(connection, tableName);
+							Set<String> actualColumns = getTableColumns(connection, tableName);
 							for (String actualColumn : actualColumns) {
 								if (!expectedColumns.contains(actualColumn.toLowerCase())
 										&& !indexedColumns.contains(actualColumn.toLowerCase())
-										&& !primaryKeyColumns.contains(actualColumn.toLowerCase())) {
+										&& !existingPK.contains(actualColumn.toLowerCase())) {
 									String dropSql = "ALTER TABLE " + tableName + " DROP COLUMN " + actualColumn + ";";
-									try {
-										executeSql(connection, dropSql);
-										alterSqlAll.append(dropSql);
-										log.info("废弃字段 {} 已删除", actualColumn);
-									} catch (Exception e) {
-										log.warn("删除废弃字段 {} 失败: {}", actualColumn, e.getMessage());
-									}
+									allUpdateSql.add(dropSql);
+									log.info("废弃字段 {} 需要删除", actualColumn);
 								}
+							}
+
+							// 阶段6：统一执行所有 SQL（先记录，后执行）
+							for (String sql : allUpdateSql) {
+								alterSqlAll.append(sql);
+								executeSql(connection, sql);
 							}
 
 							// 记录日志
@@ -181,6 +187,140 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 				}
 			}
 		}
+	}
+
+	/**
+	 * @Name        : generateUpdateTableRemarkSql
+	 * @Description : 生成表备注变更 SQL
+	 * @Param       : connection 数据库连接
+	 * @Param       : tableName 表名
+	 * @Param       : newRemark 新的表备注
+	 * @Return      : String SQL
+	 * @Date        : 2026/7/13
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private String generateUpdateTableRemarkSql(Connection connection, String tableName, String newRemark) throws SQLException {
+		String currentRemark = getCurrentTableRemark(connection, tableName);
+		if (!Objects.equals(currentRemark, newRemark)) {
+			String sql = "ALTER TABLE " + tableName + " COMMENT '" + newRemark + "';";
+			log.info("表 {} 的备注需要更新为：{}", tableName, newRemark);
+			return sql;
+		} else {
+			log.info("表 {} 的备注无需更新", tableName);
+			return "";
+		}
+	}
+
+	/**
+	 * @Name        : generateUpdateIndexesSql
+	 * @Description : 获取索引变更 SQL
+	 * @Param       : connection 数据库连接
+	 * @Param       : tableName 表名
+	 * @Param       : entityClass 实体类
+	 * @Return      : List<String> SQL 列表
+	 * @Date        : 2026/7/13
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private String generateCreateIndexSql(String tableName, String field, Class<?> entityClass, boolean isUnique) throws SQLException {
+		Map<String, String> fieldInfo = getFieldInfo(entityClass, field);
+		if (fieldInfo.isEmpty()) {
+			return "";
+		}
+		String fieldType = fieldInfo.get("type");
+		String fieldLength = fieldInfo.get("length");
+
+		String indexLength = getIndexLength(fieldType, fieldLength);
+		String fieldNamePrefix = isUnique ? "idx_unique_" : "idx_normal_";
+		String fieldName = StringUtils.camelToUnderscore(field);
+		String indexFieldName = fieldNamePrefix + fieldName;
+		String indexType = isUnique ? "UNIQUE" : "";
+
+		return "CREATE " + indexType + " INDEX " + indexFieldName
+				+ " ON " + tableName + " (" + fieldName + indexLength + ");";
+	}
+
+	/**
+	 * @Name        : generateDropIndexSql
+	 * @Description : 获取索引删除 SQL
+	 * @Param       : tableName 表名
+	 * @Param       : indexName 索引名
+	 * @Return      : String SQL
+	 * @Date        : 2026/7/13
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private String generateDropIndexSql(String tableName, String indexName) {
+		return "DROP INDEX " + indexName + " ON " + tableName + ";";
+	}
+
+	/**
+	 * @Name        : generateUpdateIndexesSql
+	 * @Description : 获取索引变更 SQL
+	 * @Param       : connection 数据库连接
+	 * @Param       : tableName 表名
+	 * @Param       : entityClass 实体类
+	 * @Return      : List<String> SQL 列表
+	 * @Date        : 2026/7/13
+	 * @Author      : dujing
+	 * @Version     : 1.0
+	 * @Email       : jing.du@forten-tech.com
+	 */
+	private List<String> generateUpdateIndexesSql(Connection connection, String tableName, Class<?> entityClass) throws SQLException {
+		List<String> sqlList = new ArrayList<>();
+
+		if (!entityClass.isAnnotationPresent(EntityIndexAnnotation.class)) {
+			return sqlList;
+		}
+
+		EntityIndexAnnotation indexAnnotation = entityClass.getAnnotation(EntityIndexAnnotation.class);
+		Set<String> currentIndexes = getCurrentIndexes(connection, tableName);
+
+		// 处理唯一索引
+		Set<String> expectedUniqueIndexes = new HashSet<>();
+		for (String field : indexAnnotation.ux()) {
+			String indexName = "idx_unique_" + StringUtils.camelToUnderscore(field);
+			expectedUniqueIndexes.add(indexName);
+			if (!currentIndexes.contains(indexName)) {
+				String sql = generateCreateIndexSql(tableName, field, entityClass, true);
+				if (StringUtils.isNotBlank(sql)) {
+					sqlList.add(sql);
+					log.info("需要创建唯一索引：{}", indexName);
+				}
+			}
+		}
+
+		// 处理普通索引
+		Set<String> expectedNormalIndexes = new HashSet<>();
+		for (String field : indexAnnotation.ix()) {
+			String indexName = "idx_normal_" + StringUtils.camelToUnderscore(field);
+			expectedNormalIndexes.add(indexName);
+			if (!currentIndexes.contains(indexName)) {
+				String sql = generateCreateIndexSql(tableName, field, entityClass, false);
+				if (StringUtils.isNotBlank(sql)) {
+					sqlList.add(sql);
+					log.info("需要创建普通索引：{}", indexName);
+				}
+			}
+		}
+
+		// 删除多余的索引（排除 PRIMARY）
+		for (String currentIndex : currentIndexes) {
+			if ("PRIMARY".equalsIgnoreCase(currentIndex)) {
+				continue;
+			}
+			if (!expectedUniqueIndexes.contains(currentIndex) && !expectedNormalIndexes.contains(currentIndex)) {
+				String sql = generateDropIndexSql(tableName, currentIndex);
+				sqlList.add(sql);
+				log.info("需要删除多余索引：{}", currentIndex);
+			}
+		}
+
+		return sqlList;
 	}
 
 	/**
@@ -493,34 +633,6 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 	}
 
 	/**
-	 * @Name        : updateTableRemark
-	 * @Description : 更新表备注信息
-	 * @Param       : connection 数据库连接
-	 * @Param       : tableName 表名
-	 * @Param       : newRemark 新备注
-	 * @Return      : String 执行 SQL
-	 * @Date        : 2026/2/15
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private String updateTableRemark(Connection connection, String tableName, String newRemark) throws SQLException {
-		// 获取当前表备注
-		String currentRemark = getCurrentTableRemark(connection, tableName);
-
-		// 如果备注不一致，则更新
-		if (!Objects.equals(currentRemark, newRemark)) {
-			String sql = "ALTER TABLE " + tableName + " COMMENT '" + newRemark + "';";
-			executeSql(connection, sql);
-			log.info("表 {} 的备注已更新为：{}", tableName, newRemark);
-			return sql;
-		} else {
-			log.info("表 {} 的备注无需更新", tableName);
-			return "";
-		}
-	}
-
-	/**
 	 * @Name        : getCurrentTableRemark
 	 * @Description : 获取当前表的备注信息
 	 * @Param       : connection 数据库连接
@@ -540,73 +652,6 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 		}
 
 		return null;
-	}
-
-	/**
-	 * @Name        : updateIndexes
-	 * @Description : 更新表索引信息
-	 * @Param       : connection 数据库连接
-	 * @Param       : tableName 表名
-	 * @Param       : entityClass 实体类
-	 * @Return      : String 执行 SQL
-	 * @Date        : 2026/2/15
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private String updateIndexes(Connection connection, String tableName, Class<?> entityClass) throws SQLException {
-		if (!entityClass.isAnnotationPresent(EntityIndexAnnotation.class)) {
-			return "";
-		}
-
-		EntityIndexAnnotation indexAnnotation = entityClass.getAnnotation(EntityIndexAnnotation.class);
-
-		// 初始化执行 SQL
-		StringBuilder updateIndexSql = new StringBuilder();
-
-		// 获取当前表的所有索引
-		Set<String> currentIndexes = getCurrentIndexes(connection, tableName);
-
-		// 处理唯一索引
-		Set<String> expectedUniqueIndexes = new HashSet<>();
-		for (String field : indexAnnotation.ux()) {
-			String indexName = "idx_unique_" + StringUtils.camelToUnderscore(field);
-			expectedUniqueIndexes.add(indexName);
-			if (!currentIndexes.contains(indexName)) {
-				String sql = createIndex(connection, tableName, field, entityClass, true);
-				if (StringUtils.isNotBlank(sql)) {
-					updateIndexSql.append(sql);
-				}
-			}
-		}
-
-		// 处理普通索引
-		Set<String> expectedNormalIndexes = new HashSet<>();
-		for (String field : indexAnnotation.ix()) {
-			String indexName = "idx_normal_" + StringUtils.camelToUnderscore(field);
-			expectedNormalIndexes.add(indexName);
-			if (!currentIndexes.contains(indexName)) {
-				String sql = createIndex(connection, tableName, field, entityClass, false);
-				if (StringUtils.isNotBlank(sql)) {
-					updateIndexSql.append(sql);
-				}
-			}
-		}
-
-		// 删除多余的索引
-		for (String currentIndex : currentIndexes) {
-			// PRIMARY 保留，不删除
-			if ("PRIMARY".equalsIgnoreCase(currentIndex)) {
-				continue;
-			}
-			if (!expectedUniqueIndexes.contains(currentIndex) && !expectedNormalIndexes.contains(currentIndex)) {
-				String sql = dropIndex(connection, tableName, currentIndex);
-				if (StringUtils.isNotBlank(sql)) {
-					updateIndexSql.append(sql);
-				}
-			}
-		}
-		return updateIndexSql.toString();
 	}
 
 	/**
@@ -654,25 +699,6 @@ public class TableAutoCreateRunner implements ApplicationRunner {
 			}
 		}
 		return indexedColumns;
-	}
-
-	/**
-	 * @Name        : dropIndex
-	 * @Description : 删除索引
-	 * @Param       : connection 数据库连接
-	 * @Param       : tableName 表名
-	 * @Param       : indexName 索引名
-	 * @Return      : String 执行 SQL
-	 * @Date        : 2026/2/15
-	 * @Author      : dujing
-	 * @Version     : 1.0
-	 * @Email       : jing.du@forten-tech.com
-	 */
-	private String dropIndex(Connection connection, String tableName, String indexName) throws SQLException {
-		String sql = "DROP INDEX " + indexName + " ON " + tableName +";";
-		executeSql(connection, sql);
-		log.info("索引 {} 已删除", indexName);
-		return sql;
 	}
 
 	/**
