@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<!-- Spring Boot 父工程（核心，统一管理版本和依赖） -->
+	<parent>
+		<groupId>org.virgil</groupId>
+		<artifactId>java-frame-table</artifactId>
+		<version>1.0.0</version>
+		<relativePath>../pom.xml</relativePath>
+	</parent>
+
+	<!-- 项目 GAV（与创建时填写的一致） -->
+	<artifactId>frame-table-core</artifactId>
+	<description>框架核心库：自动建表 + 表升级日志</description>
+
+	<!-- 核心依赖：Spring Web（用于 Web 开发） -->
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- 测试依赖（可选） -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- lombok 依赖（用于简化代码，如自动生成 Getter、Setter 等） -->
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<!-- MyBatis-Plus Spring Boot Starter -->
+		<dependency>
+			<groupId>com.baomidou</groupId>
+			<artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+			<version>${mybatisplus.version}</version>
+		</dependency>
+	</dependencies>
+
+	<!-- 发布私服配置 -->
+	<distributionManagement>
+		<repository>
+			<id>virgil-maven</id>
+			<name>Private Releases</name>
+			<url>http://virgil6.com:8081/repository/maven-releases/</url>
+		</repository>
+		<snapshotRepository>
+			<id>virgil-maven</id>
+			<name>Private Snapshots</name>
+			<url>http://virgil6.com:8081/repository/maven-snapshots/</url>
+		</snapshotRepository>
+	</distributionManagement>
+
+	<!-- 注意：此处没有 spring-boot-maven-plugin，只打普通 Jar -->
+
+</project>

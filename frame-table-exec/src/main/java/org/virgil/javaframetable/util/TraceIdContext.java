@@ -1,5 +1,6 @@
 package org.virgil.javaframetable.util;
 
+import org.virgil.javaframetable.util.StringUtils;
 import org.slf4j.MDC;
 
 import java.util.UUID;
