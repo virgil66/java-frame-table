@@ -41,7 +41,46 @@
 			<artifactId>mybatis-plus-spring-boot4-starter</artifactId>
 			<version>${mybatisplus.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>org.hibernate.validator</groupId>
+			<artifactId>hibernate-validator</artifactId>
+			<version>8.0.1.Final</version>
+		</dependency>
+		<dependency>
+			<groupId>jakarta.validation</groupId>
+			<artifactId>jakarta.validation-api</artifactId>
+			<version>3.0.2</version>
+		</dependency>
+		<dependency>
+			<groupId>org.virgil</groupId>
+			<artifactId>frame-base-common</artifactId>
+			<version>${base.version}</version>
+		</dependency>
 	</dependencies>
+	<repositories>
+		<repository>
+			<id>maven-public</id>
+			<url>http://virgil6.com:8081/repository/maven-public/</url>
+			<releases>
+				<enabled>true</enabled>
+			</releases>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</repository>
+	</repositories>
+	<pluginRepositories>
+		<pluginRepository>
+			<id>maven-public</id>
+			<url>http://virgil6.com:8081/repository/maven-public/</url>
+			<releases>
+				<enabled>true</enabled>
+			</releases>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</pluginRepository>
+	</pluginRepositories>
 
 	<!-- 发布私服配置 -->
 	<distributionManagement>

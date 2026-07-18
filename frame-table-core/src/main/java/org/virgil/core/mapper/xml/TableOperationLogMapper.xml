@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.virgil.core.mapper.TableOperationLogMapper">
+
+	<resultMap id="BaseResultMap" type="org.virgil.core.entity.TableOperationLog">
+      <id column="id" property="id"/>
+      <result column="table_name" property="tableName"/>
+      <result column="operation_type" property="operationType"/>
+      <result column="version" property="version"/>
+      <result column="upgrade_success" property="upgradeSuccess"/>
+      <result column="upgrade_fail_reason" property="upgradeFailReason"/>
+      <result column="upgrade_time" property="upgradeTime"/>
+	</resultMap>
+	<sql id="Base_Column_List">
+		id, table_name, operation_type, version, upgrade_success, upgrade_fail_reason, upgrade_time
+  </sql>
+</mapper>

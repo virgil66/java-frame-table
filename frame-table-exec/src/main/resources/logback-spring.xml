@@ -89,7 +89,7 @@
     </root>
 
     <!-- 业务日志单独配置（按需调整级别） -->
-    <logger name="org.virgil.javaframetable" level="DEBUG" additivity="false">
+    <logger name="org.virgil.core" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>
         <appender-ref ref="ERROR_FILE"/>

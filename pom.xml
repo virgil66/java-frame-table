@@ -17,7 +17,7 @@
 	<version>1.0.0</version>
 	<name>java-frame-table</name>
 	<packaging>pom</packaging>
-	<description>框架表相关模块</description>
+	<description>框架数据库库</description>
 
 	<modules>
 		<module>frame-table-core</module>
@@ -27,6 +27,7 @@
 	<properties>
 		<java.version>21</java.version>
 		<table.version>1.0.0</table.version>
+		<base.version>1.0.0</base.version>
 		<mybatisplus.version>3.5.16</mybatisplus.version>
 	</properties>
 
