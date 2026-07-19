@@ -50,6 +50,11 @@
 			<groupId>org.virgil</groupId>
 			<artifactId>frame-table-core</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>com.baizhukui</groupId>
+			<artifactId>knife4j-openapi3-boot4-spring-boot-starter</artifactId>
+			<version>5.0.18</version>
+		</dependency>
 	</dependencies>
 
 	<!-- 打包插件（Spring Boot 必须，否则无法生成可执行 Jar） -->
